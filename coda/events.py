@@ -7,7 +7,66 @@ import json
 from six import string_types
 from functools import partial
 
-__all__ = ['EventReader', 'EventTransformer']
+# __all__ = ['EventReader', 'EventTransformer']
+__all__ = ['read_events', 'EventTransformer']
+
+
+def read_events(path, columns=None, header='infer', sep=None,
+                default_duration=0., default_amplitude=1., condition=None,
+                rename=None, **column_patterns):
+
+    dfs = []
+
+    if isinstance(path, string_types):
+        path = glob(path)
+
+    for f in path:
+        _data = pd.read_table(f, names=columns, header=header, sep=sep)
+
+        if rename is not None:
+            _data = _data.rename(rename)
+
+        # Validate and set CODA columns
+        cols = _data.columns
+
+        if 'onset' not in cols:
+            raise ValueError(
+                "DataFrame is missing mandatory 'onset' column.")
+
+        if 'duration' not in cols:
+            if default_duration is None:
+                raise ValueError(
+                    'Event file "%s" is missing \'duration\''
+                    ' column, and no default_duration was provided.' % f)
+            else:
+                _data['duration'] = default_duration
+
+        if 'amplitude' not in cols:
+            _data['amplitude'] = default_amplitude
+
+        for column, pattern in column_patterns.items():
+            if '_pattern' not in column:
+                continue
+            column = column.replace('_pattern', '')
+            if column not in cols:
+                m = re.search(pattern, f)
+                if m is None:
+                    raise ValueError(
+                        "Failed to match the pattern '%s' to any part of "
+                        "filename '%s' for column '%s'." % (pattern, f, column)
+                        )
+                _data[column] = m.group(1)
+
+        if 'condition' not in _data.columns:
+            raise ValueError("No condition column found in event file. Either "
+                             "make sure that the input file contains a file "
+                             "named 'condition', or explicitly set one of the "
+                             "condition or condition_pattern arguments.")
+
+        dfs.append(_data)
+
+    return pd.concat(dfs, axis=0)
+
 
 class Transformations(object):
 
@@ -187,112 +246,3 @@ class EventTransformer(object):
         self.data = self.data.resample('%dL' % sampling_rate).mean()
         self.data['onset'] = self.data.index.astype(np.int64) / int(1e9)
         self.data = self.data.reset_index(drop=True)
-
-
-class EventReader(object):
-
-    def __init__(self, columns=None, header='infer', sep=None,
-                 default_duration=0., default_amplitude=1.,
-                 condition_pattern=None, subject_pattern=None,
-                 run_pattern=None):
-        '''
-        Args:
-            columns (list): Optional list of column output to use. If passed,
-                number of elements must match number of columns in the text
-                files to be read. If omitted, column output are inferred by
-                pandas (depending on value of header).
-            header (str): passed to pandas; see pd.read_table docs for details.
-            sep (str): column separator; see pd.read_table docs for details.
-            default_duration (float): Optional default duration to set for all
-                events. Will be ignored if a column named 'duration' is found.
-            default_amplitude (float): Optional default amplitude to set for
-                all events. Will be ignored if an amplitude column is found.
-            condition_pattern (str): regex with which to capture condition
-                output from input text file fileoutput. Only the first captured
-                group will be used.
-            subject_pattern (str): regex with which to capture subject
-                output from input text file fileoutput. Only the first captured
-                group will be used.
-            run_pattern (str): regex with which to capture run output from input
-                text file fileoutput. Only the first captured group will be used.
-        '''
-
-        self.columns = columns
-        self.header = header
-        self.sep = sep
-        self.default_duration = default_duration
-        self.default_amplitude = default_amplitude
-        self.condition_pattern = condition_pattern
-        self.subject_pattern = subject_pattern
-        self.run_pattern = run_pattern
-
-    def read(self, path, condition=None, subject=None, run=None, rename=None):
-
-        dfs = []
-
-        if isinstance(path, string_types):
-            path = glob(path)
-
-        for f in path:
-            _data = pd.read_table(f, names=self.columns, header=self.header,
-                                  sep=self.sep)
-
-            if rename is not None:
-                _data = _data.rename(rename)
-
-            # Validate and set CODA columns
-            cols = _data.columns
-
-            if 'onset' not in cols:
-                raise ValueError(
-                    "DataFrame is missing mandatory 'onset' column.")
-
-            if 'duration' not in cols:
-                if self.default_duration is None:
-                    raise ValueError(
-                        'Event file "%s" is missing \'duration\''
-                        ' column, and no default_duration was provided.' % f)
-                else:
-                    _data['duration'] = self.default_duration
-
-            if 'amplitude' not in cols:
-                _data['amplitude'] = self.default_amplitude
-
-            if condition is not None:
-                _data['condition'] = condition_name
-            elif 'condition' not in cols:
-                cp = self.condition_pattern
-                if cp is None:
-                    cp = '(.*)\.[a-zA-Z0-9]{3,4}'
-                m = re.search(cp, basename(f))
-                if m is None:
-                    raise ValueError(
-                        "No condition column found in event file, no "
-                        "condition_name argument passed, and attempt to "
-                        "automatically extract condition from filename failed."
-                        " Please make sure a condition is specified.")
-                _data['condition'] = m.group(1)
-
-            if subject is not None:
-                _data['subject'] = subject
-            elif self.subject_pattern is not None:
-                m = re.search(self.subject_pattern, f)
-                if m is None:
-                    raise ValueError(
-                        "Subject pattern '%s' failed to match any part of "
-                        "filename '%s'." % (self.subject_pattern, f))
-                _data['subject'] = m.group(1)
-
-            if run is not None:
-                _data['run'] = run
-            elif self.run_pattern is not None:
-                m = re.search(self.run_pattern, f)
-                if m is None:
-                    raise ValueError(
-                        "Run pattern '%s' failed to match any part of "
-                        "filename '%s'." % (self.run_pattern, f))
-                _data['run'] = m.group(1)
-
-            dfs.append(_data)
-
-        return pd.concat(dfs, axis=0)
