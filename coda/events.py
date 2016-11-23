@@ -259,7 +259,7 @@ class EventReader(object):
                 _data['amplitude'] = self.default_amplitude
 
             if condition is not None:
-                _data['condition'] = condition_name
+                _data['condition'] = condition
             elif 'condition' not in cols:
                 cp = self.condition_pattern
                 if cp is None:
