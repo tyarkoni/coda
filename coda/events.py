@@ -190,7 +190,7 @@ class EventTransformer(object):
 
 
 class EventReader(object):
-
+    """ Reads in FSL-style event files into long format pandas dataframe """
     def __init__(self, columns=None, header='infer', sep=None,
                  default_duration=0., default_amplitude=1.,
                  condition_pattern=None, subject_pattern=None,
@@ -296,3 +296,51 @@ class EventReader(object):
             dfs.append(_data)
 
         return pd.concat(dfs, axis=0)
+
+class BIDSEventsReader(object):
+    """ Reads in BIDS event tsv files into long format pandas dataframe """
+    def __init__(self, default_duration=0., default_amplitude=1., amplitude_column = None, condition_column = 'trial_type', sep = '\t'):
+        self.default_duration = default_duration
+        self.default_amplitude = default_amplitude
+        self.condition_column = condition_column
+        self.amplitude_column = amplitude_column
+        self.sep = sep
+
+    def read(self, file):
+        """ First just read in an explicilty defined events file, but later use pybids to find this file
+        based on subject, run ids, etc """
+        _data = pd.read_table(file, sep=self.sep)
+
+        # Validate and set CODA columns
+        cols = _data.columns
+
+        if 'onset' not in cols:
+            raise ValueError(
+                "DataFrame is missing mandatory 'onset' column.")
+
+        if 'duration' not in cols:
+            if self.default_duration is None:
+                raise ValueError(
+                    'Events.tsv file is missing \'duration\''
+                    ' column, and no default_duration was provided.')
+            else:
+                _data['duration'] = self.default_duration            
+
+        if self.condition_column is not None and 'condition' not in cols:
+            _data['condition'] = _data[self.condition_column]
+
+        if 'amplitude' not in cols:
+            if self.amplitude_column is not None:
+                _data['amplitude'] = _data[self.amplitude_column]
+            elif self.default_amplitiude is None:
+                raise ValueError(
+                    'Events.tsv file is missing \'amplitude\''
+                    ' column, and no default_amplitude was provided.')
+            else:
+                _data['amplitude'] = self.default_amplitude
+
+        _data = _data[['onset', 'duration', 'amplitude', 'condition']]
+
+        return _data
+
+
