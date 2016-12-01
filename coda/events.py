@@ -6,7 +6,7 @@ from os.path import basename
 from six import string_types
 from functools import partial
 
-__all__ = ['BIDSEventsReader', 'EventReader', 'EventTransformer']
+__all__ = ['BIDSEventReader', 'EventReader', 'EventTransformer']
 
 
 class Transformations(object):
@@ -301,7 +301,7 @@ class EventReader(object):
         return pd.concat(dfs, axis=0)
 
 
-class BIDSEventsReader(object):
+class BIDSEventReader(object):
     """ Reads in BIDS event tsv files into long format pandas dataframe """
     def __init__(self, default_duration=0., default_amplitude=1.,
                  amplitude_column=None, condition_column='trial_type',
