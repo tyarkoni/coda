@@ -6,7 +6,7 @@ from os.path import basename
 from six import string_types
 from functools import partial
 
-__all__ = ['EventReader', 'EventTransformer']
+__all__ = ['BIDSEventsReader', 'EventReader', 'EventTransformer']
 
 
 class Transformations(object):
@@ -333,19 +333,33 @@ class BIDSEventsReader(object):
             else:
                 _data['duration'] = self.default_duration
 
-        if self.condition_column is not None and 'condition' not in cols:
-            _data['condition'] = _data[self.condition_column]
-
-        if 'amplitude' not in cols:
-            if self.amplitude_column is not None:
-                _data['amplitude'] = _data[self.amplitude_column]
-            elif self.default_amplitiude is None:
+        # If condition column is provided, either extract amplitudes
+        # from given amplitude column, or to default value
+        if self.condition_column is not None:
+            if self.condition_column not in cols:
                 raise ValueError(
-                    'Events.tsv file is missing \'amplitude\''
-                    ' column, and no default_amplitude was provided.')
+                    "Events.tsv file is missing the specified"
+                    " condition column, {}".format(self.condition_column))
             else:
-                _data['amplitude'] = self.default_amplitude
+                _data['condition'] = _data['trial_type']
+                if self.amplitude_column is not None:
+                    if self.amplitude_column not in cols:
+                        raise ValueError(
+                            "Events.tsv file is missing the specified"
+                            " amplitude column, {}".format(self.amplitude_column))
+                    else:
+                        amplitude = _data[self.amplitude_column]
+                else:
+                    amplitude = self.default_amplitude
 
-        _data = _data[['onset', 'duration', 'amplitude', 'condition']]
+                _data['condition'] = _data['trial_type']
+                _data['amplitude'] = amplitude
+                return _data[['onset', 'duration', 'condition', 'amplitude']]
 
-        return _data
+        # If no condition specified, get amplitudes from all columns,
+        # except 'trial_type'
+        if 'trial_type' in _data.columns:
+            _data.drop('trial_type', axis=1, inplace=True)
+
+        return pd.melt(_data, id_vars=['onset', 'duration'],
+                       value_name='amplitude', var_name='condition')
