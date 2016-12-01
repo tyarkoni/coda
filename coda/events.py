@@ -314,9 +314,9 @@ class BIDSEventReader(object):
         self.base_dir = base_dir
 
     def read(self, file=None, **kwargs):
-        """ First just read in an explicilty defined events file,
-        but later use pybids to find this file based on
-        subject, run ids, etc """
+        """ Read in events.tsv file, either by specifying file name, or
+        by passing in argument with which to query BIDS directory.if
+        e.g. subject, run, etc... """
 
         if self.base_dir is None:
             if file is None:
@@ -330,7 +330,8 @@ class BIDSEventReader(object):
 
             if len(files) > 1:
                 raise Exception("Filter arguments resulted in more than"
-                    " a single file to be extracted. Please refine query.")
+                                " a single file to be extracted."
+                                "Please refine query.")
             else:
                 file = files[0]
 
