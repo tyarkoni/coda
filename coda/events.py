@@ -181,9 +181,9 @@ class EventTransformer(object):
 
     def resample(self, sampling_rate):
         """
-        Resample the design matrix to the specified sampling rate. Primarily
-        useful for downsampling to match the TR, so as to export the design as
-        a n(TR) x n(conds) matrix.
+        Resample the design matrix to the specified sampling rate (in seconds).
+        Primarily useful for downsampling to match the TR, so as to export the
+        design as a n(TR) x n(conds) matrix.
         """
         sampling_rate = np.round(sampling_rate * 1000)
         self.data.index = pd.to_datetime(self.data['onset'], unit='s')
