@@ -3,11 +3,11 @@ import pandas as pd
 import re
 from glob import glob
 from os.path import basename
-import json
 from six import string_types
 from functools import partial
 
 __all__ = ['EventReader', 'EventTransformer']
+
 
 class Transformations(object):
 
@@ -28,7 +28,7 @@ class Transformations(object):
         X = other.values
         _aX = np.c_[np.ones(len(y)), X]
         coefs, resids, rank, s = np.linalg.lstsq(_aX, y)
-        return  y - X.dot(coefs[1:])
+        return y - X.dot(coefs[1:])
 
     @staticmethod
     def binarize(data, threshold=0.0):
@@ -62,7 +62,8 @@ def alias(target, append=False):
                     result = np.c_[group_results].squeeze().T
                     result = pd.DataFrame(result, columns=output)
                 else:
-                    result = self.data.groupby(groupby)[cols].apply(target, *args, **kwargs)
+                    result = self.data.groupby(groupby)[cols].apply(
+                        target, *args, **kwargs)
             else:
                 result = target(self.data[cols], *args, **kwargs)
 
@@ -86,7 +87,7 @@ class EventTransformer(object):
         self.target_hz = target_hz
         self._to_dense()
 
-    ### Aliased functions ###
+    # Aliased functions #
     @alias(np.log)
     def log(): pass
 
@@ -108,7 +109,7 @@ class EventTransformer(object):
     @alias(Transformations.orthogonalize)
     def orthogonalize(): pass
 
-    ### Standard instance methods ###
+    # Standard instance methods #
     def select(self, cols):
         # Always retain onsets
         if 'onset' not in cols:
@@ -117,7 +118,8 @@ class EventTransformer(object):
 
     def formula(self, f, target=None, replace=False, *args, **kwargs):
         from patsy import dmatrix
-        result = dmatrix(f, self.data, return_type='dataframe', *args, **kwargs)
+        result = dmatrix(f, self.data,
+                         return_type='dataframe', *args, **kwargs)
         if target is not None:
             self.data[target] = result
         elif replace:
@@ -128,7 +130,8 @@ class EventTransformer(object):
 
     def multiply(self, cols, x_cols):
         x_cols = self._select_cols(x_cols)
-        result = self.data[x_cols].apply(lambda x: np.multiply(x, self.data[cols]))
+        result = self.data[x_cols].apply(
+            lambda x: np.multiply(x, self.data[cols]))
         output = ['%s_%s' % (cols, x) for x in x_cols]
         self.data[output] = result
 
@@ -297,9 +300,12 @@ class EventReader(object):
 
         return pd.concat(dfs, axis=0)
 
+
 class BIDSEventsReader(object):
     """ Reads in BIDS event tsv files into long format pandas dataframe """
-    def __init__(self, default_duration=0., default_amplitude=1., amplitude_column = None, condition_column = 'trial_type', sep = '\t'):
+    def __init__(self, default_duration=0., default_amplitude=1.,
+                 amplitude_column=None, condition_column='trial_type',
+                 sep='\t'):
         self.default_duration = default_duration
         self.default_amplitude = default_amplitude
         self.condition_column = condition_column
@@ -307,8 +313,9 @@ class BIDSEventsReader(object):
         self.sep = sep
 
     def read(self, file):
-        """ First just read in an explicilty defined events file, but later use pybids to find this file
-        based on subject, run ids, etc """
+        """ First just read in an explicilty defined events file,
+        but later use pybids to find this file based on
+        subject, run ids, etc """
         _data = pd.read_table(file, sep=self.sep)
 
         # Validate and set CODA columns
@@ -324,7 +331,7 @@ class BIDSEventsReader(object):
                     'Events.tsv file is missing \'duration\''
                     ' column, and no default_duration was provided.')
             else:
-                _data['duration'] = self.default_duration            
+                _data['duration'] = self.default_duration
 
         if self.condition_column is not None and 'condition' not in cols:
             _data['condition'] = _data[self.condition_column]
@@ -342,5 +349,3 @@ class BIDSEventsReader(object):
         _data = _data[['onset', 'duration', 'amplitude', 'condition']]
 
         return _data
-
-
