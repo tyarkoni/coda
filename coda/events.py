@@ -305,19 +305,36 @@ class BIDSEventReader(object):
     """ Reads in BIDS event tsv files into long format pandas dataframe """
     def __init__(self, default_duration=0., default_amplitude=1.,
                  amplitude_column=None, condition_column='trial_type',
-                 sep='\t'):
+                 sep='\t', base_dir=None):
         self.default_duration = default_duration
         self.default_amplitude = default_amplitude
         self.condition_column = condition_column
         self.amplitude_column = amplitude_column
         self.sep = sep
+        self.base_dir = base_dir
 
-    def read(self, file):
+    def read(self, file=None, **kwargs):
         """ First just read in an explicilty defined events file,
         but later use pybids to find this file based on
         subject, run ids, etc """
-        _data = pd.read_table(file, sep=self.sep)
 
+        if self.base_dir is None:
+            if file is None:
+                raise ValueError(
+                    "If no BIDS base directory is specified"
+                    " a file to read must be given")
+        else:
+            from bids.grabbids import BIDSLayout
+            layout = BIDSLayout(self.base_dir)
+            files = layout.get(type='events', return_type='file', **kwargs)
+
+            if len(files) > 1:
+                raise Exception("Filter arguments resulted in more than"
+                    " a single file to be extracted. Please refine query.")
+            else:
+                file = files[0]
+
+        _data = pd.read_table(file, sep=self.sep)
         # Validate and set CODA columns
         cols = _data.columns
 
