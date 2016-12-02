@@ -5,6 +5,7 @@ from glob import glob
 from os.path import basename
 from six import string_types
 from functools import partial
+import json
 
 __all__ = ['BIDSEventReader', 'EventReader', 'EventTransformer']
 
@@ -147,10 +148,18 @@ class EventTransformer(object):
             func = getattr(self, func)
         func(*args, **kwargs)
 
+    def apply_from_json(self, json_file):
+        tf = json.load(open(json_file, 'rU'))
+        for t in tf['transformations']:
+                    name = t.pop('name')
+                    cols = t.pop('input', None)
+                    self.apply(name, cols, **t)
+
     def _select_cols(self, cols):
         if isinstance(cols, string_types) and '*' in cols:
             patt = re.compile(cols.replace('*', '.*'))
-            cols = [l for l in self.data.columns.tolist() for m in [patt.search(l)] if m]
+            cols = [l for l in self.data.columns.tolist()
+                    for m in [patt.search(l)] if m]
         return cols
 
     def _to_dense(self):
@@ -166,7 +175,8 @@ class EventTransformer(object):
         ts = np.zeros((len_ts, n_conditions))
 
         _events = self.events.copy().reset_index()
-        _events[['onset', 'duration']] = _events[['onset', 'duration']] * targ_hz / orig_hz
+        _events[['onset', 'duration']] = \
+            _events[['onset', 'duration']] * targ_hz / orig_hz
 
         cond_index = [conditions.index(c) for c in _events['condition']]
         ev_end = np.round(_events['onset'] + _events['duration']).astype(int)
@@ -216,8 +226,9 @@ class EventReader(object):
             subject_pattern (str): regex with which to capture subject
                 output from input text file fileoutput. Only the first captured
                 group will be used.
-            run_pattern (str): regex with which to capture run output from input
-                text file fileoutput. Only the first captured group will be used.
+            run_pattern (str): regex with which to capture run output from
+                input text file fileoutput. Only the first captured group
+                will be used.
         '''
 
         self.columns = columns
