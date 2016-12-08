@@ -210,7 +210,7 @@ class EventTransformer(object):
         self.data['run'] = self.data.index.get_level_values(0)
         self.data = self.data.reset_index(drop=True)
 
-    def get_data(by_run=True):
+    def get_data(self, by_run=True):
         if by_run is True:
             return [self.data[self.data.run == i].drop('run', axis=1) for i in self.data.run.unique()]
 
