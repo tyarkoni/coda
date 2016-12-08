@@ -83,6 +83,8 @@ def alias(target, append=False):
 class EventTransformer(object):
 
     def __init__(self, events, orig_hz=1, target_hz=1000):
+        if not isinstance(events, list):
+            events = [events]
         self.events = events
         self.orig_hz = orig_hz
         self.target_hz = target_hz
@@ -166,28 +168,34 @@ class EventTransformer(object):
         """ Convert the sparse [onset, duration, amplitude] representation
         typical of event files to a dense matrix where each row represents
         a fixed unit of time. """
-        end = int((self.events['onset'] + self.events['duration']).max())
+        all_data = []
+        for n, event_file in enumerate(self.events):
+            end = int((event_file['onset'] + event_file['duration']).max())
 
-        targ_hz, orig_hz = self.target_hz, self.orig_hz
-        len_ts = end * targ_hz
-        conditions = self.events['condition'].unique().tolist()
-        n_conditions = len(conditions)
-        ts = np.zeros((len_ts, n_conditions))
+            targ_hz, orig_hz = self.target_hz, self.orig_hz
+            len_ts = end * targ_hz
+            conditions = event_file['condition'].unique().tolist()
+            n_conditions = len(conditions)
+            ts = np.zeros((len_ts, n_conditions))
 
-        _events = self.events.copy().reset_index()
-        _events[['onset', 'duration']] = \
-            _events[['onset', 'duration']] * targ_hz / orig_hz
+            _events = event_file.copy().reset_index()
+            _events[['onset', 'duration']] = \
+                _events[['onset', 'duration']] * targ_hz / orig_hz
 
-        cond_index = [conditions.index(c) for c in _events['condition']]
-        ev_end = np.round(_events['onset'] + _events['duration']).astype(int)
-        onsets = np.round(_events['onset']).astype(int)
+            cond_index = [conditions.index(c) for c in _events['condition']]
+            ev_end = np.round(_events['onset'] + _events['duration']).astype(int)
+            onsets = np.round(_events['onset']).astype(int)
 
-        for i, row in _events.iterrows():
-            ts[onsets[i]:ev_end[i], cond_index[i]] = row['amplitude']
+            for i, row in _events.iterrows():
+                ts[onsets[i]:ev_end[i], cond_index[i]] = row['amplitude']
 
-        self.data = pd.DataFrame(ts, columns=conditions)
-        onsets = np.arange(len(ts)) / self.target_hz
-        self.data.insert(0, 'onset', onsets)
+            data = pd.DataFrame(ts, columns=conditions)
+            onsets = np.arange(len(ts)) / self.target_hz
+            data.insert(0, 'onset', onsets)
+            data['run'] = n
+            all_data.append(data)
+
+        self.data = pd.concat(all_data).fillna(0)
 
     def resample(self, sampling_rate):
         """
@@ -197,9 +205,16 @@ class EventTransformer(object):
         """
         sampling_rate = np.round(sampling_rate * 1000)
         self.data.index = pd.to_datetime(self.data['onset'], unit='s')
-        self.data = self.data.resample('%dL' % sampling_rate).mean()
-        self.data['onset'] = self.data.index.astype(np.int64) / int(1e9)
+        self.data = self.data.groupby('run').resample('%dL' % sampling_rate).mean()
+        self.data['onset'] = self.data.index.get_level_values(1).astype(np.int64) / int(1e9)
+        self.data['run'] = self.data.index.get_level_values(0)
         self.data = self.data.reset_index(drop=True)
+
+    def get_data(by_run=True):
+        if by_run = True:
+            return self.data[self.data.run == i].drop('run', axis=1) for i in self.data.run.unique()]
+
+        return self.data
 
 
 class EventReader(object):
@@ -324,71 +339,73 @@ class BIDSEventReader(object):
         self.sep = sep
         self.base_dir = base_dir
 
-    def read(self, file=None, **kwargs):
+    def read(self, files=None, **kwargs):
         """ Read in events.tsv file, either by specifying file name, or
         by passing in argument with which to query BIDS directory.if
         e.g. subject, run, etc... """
 
         if self.base_dir is None:
-            if file is None:
+            if files is None:
                 raise ValueError(
                     "If no BIDS base directory is specified"
-                    " a file to read must be given")
+                    " a file to read must be given.")
+            elif isinstance(files, str):
+                files = [files]
         else:
             from bids.grabbids import BIDSLayout
             layout = BIDSLayout(self.base_dir)
             files = layout.get(type='events', return_type='file', **kwargs)
 
-            if len(files) > 1:
-                raise Exception("Filter arguments resulted in more than"
-                                " a single file to be extracted."
-                                "Please refine query.")
-            else:
-                file = files[0]
+            if len(files) < 1:
+                raise Exception("A BIDS events file could not be found.")
 
-        _data = pd.read_table(file, sep=self.sep)
-        # Validate and set CODA columns
-        cols = _data.columns
+        results = []
+        for file in files:
+            _data = pd.read_table(file, sep=self.sep)
 
-        if 'onset' not in cols:
-            raise ValueError(
-                "DataFrame is missing mandatory 'onset' column.")
+            # Validate and set CODA columns
+            cols = _data.columns
 
-        if 'duration' not in cols:
-            if self.default_duration is None:
+            if 'onset' not in cols:
                 raise ValueError(
-                    'Events.tsv file is missing \'duration\''
-                    ' column, and no default_duration was provided.')
-            else:
-                _data['duration'] = self.default_duration
+                    "DataFrame is missing mandatory 'onset' column.")
 
-        # If condition column is provided, either extract amplitudes
-        # from given amplitude column, or to default value
-        if self.condition_column is not None:
-            if self.condition_column not in cols:
-                raise ValueError(
-                    "Events.tsv file is missing the specified"
-                    " condition column, {}".format(self.condition_column))
-            else:
-                _data['condition'] = _data['trial_type']
-                if self.amplitude_column is not None:
-                    if self.amplitude_column not in cols:
-                        raise ValueError(
-                            "Events.tsv file is missing the specified"
-                            " amplitude column, {}".format(self.amplitude_column))
-                    else:
-                        amplitude = _data[self.amplitude_column]
+            if 'duration' not in cols:
+                if self.default_duration is None:
+                    raise ValueError(
+                        'Events.tsv file is missing \'duration\''
+                        ' column, and no default_duration was provided.')
                 else:
-                    amplitude = self.default_amplitude
+                    _data['duration'] = self.default_duration
 
-                _data['condition'] = _data['trial_type']
-                _data['amplitude'] = amplitude
-                return _data[['onset', 'duration', 'condition', 'amplitude']]
+            # If condition column is provided, either extract amplitudes
+            # from given amplitude column, or to default value
+            if self.condition_column is not None:
+                if self.condition_column not in cols:
+                    raise ValueError(
+                        "Events.tsv file is missing the specified"
+                        " condition column, {}".format(self.condition_column))
+                else:
+                    if self.amplitude_column is not None:
+                        if self.amplitude_column not in cols:
+                            raise ValueError(
+                                "Events.tsv file is missing the specified"
+                                " amplitude column, {}".format(self.amplitude_column))
+                        else:
+                            amplitude = _data[self.amplitude_column]
+                    else:
+                        amplitude = self.default_amplitude
 
-        # If no condition specified, get amplitudes from all columns,
-        # except 'trial_type'
-        if 'trial_type' in _data.columns:
-            _data.drop('trial_type', axis=1, inplace=True)
+                    _data['condition'] = _data['trial_type']
+                    _data['amplitude'] = amplitude
+                    results.append(_data[['onset', 'duration', 'condition', 'amplitude']])
+            else:
+                # If no condition specified, get amplitudes from all columns,
+                # except 'trial_type'
+                if 'trial_type' in _data.columns:
+                    _data.drop('trial_type', axis=1, inplace=True)
 
-        return pd.melt(_data, id_vars=['onset', 'duration'],
-                       value_name='amplitude', var_name='condition')
+                results.append(pd.melt(_data, id_vars=['onset', 'duration'],
+                               value_name='amplitude', var_name='condition'))
+
+        return results
