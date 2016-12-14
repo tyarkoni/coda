@@ -168,34 +168,28 @@ class EventTransformer(object):
         """ Convert the sparse [onset, duration, amplitude] representation
         typical of event files to a dense matrix where each row represents
         a fixed unit of time. """
-        all_data = []
-        for n, event_file in enumerate(self.events):
-            end = int((event_file['onset'] + event_file['duration']).max())
+        end = int((self.events['onset'] + self.events['duration']).max())
 
-            targ_hz, orig_hz = self.target_hz, self.orig_hz
-            len_ts = end * targ_hz
-            conditions = event_file['condition'].unique().tolist()
-            n_conditions = len(conditions)
-            ts = np.zeros((len_ts, n_conditions))
+        targ_hz, orig_hz = self.target_hz, self.orig_hz
+        len_ts = end * targ_hz
+        conditions = self.events['condition'].unique().tolist()
+        n_conditions = len(conditions)
+        ts = np.zeros((len_ts, n_conditions))
 
-            _events = event_file.copy().reset_index()
-            _events[['onset', 'duration']] = \
-                _events[['onset', 'duration']] * targ_hz / orig_hz
+        _events = self.events.copy().reset_index()
+        _events[['onset', 'duration']] = \
+            _events[['onset', 'duration']] * targ_hz / orig_hz
 
-            cond_index = [conditions.index(c) for c in _events['condition']]
-            ev_end = np.round(_events['onset'] + _events['duration']).astype(int)
-            onsets = np.round(_events['onset']).astype(int)
+        cond_index = [conditions.index(c) for c in _events['condition']]
+        ev_end = np.round(_events['onset'] + _events['duration']).astype(int)
+        onsets = np.round(_events['onset']).astype(int)
 
-            for i, row in _events.iterrows():
-                ts[onsets[i]:ev_end[i], cond_index[i]] = row['amplitude']
+        for i, row in _events.iterrows():
+            ts[onsets[i]:ev_end[i], cond_index[i]] = row['amplitude']
 
-            data = pd.DataFrame(ts, columns=conditions)
-            onsets = np.arange(len(ts)) / self.target_hz
-            data.insert(0, 'onset', onsets)
-            data['run'] = n
-            all_data.append(data)
-
-        self.data = pd.concat(all_data).fillna(0)
+        self.data = pd.DataFrame(ts, columns=conditions)
+        onsets = np.arange(len(ts)) / self.target_hz
+        self.data.insert(0, 'onset', onsets)
 
     def resample(self, sampling_rate):
         """
@@ -205,19 +199,19 @@ class EventTransformer(object):
         """
         sampling_rate = np.round(sampling_rate * 1000)
         self.data.index = pd.to_datetime(self.data['onset'], unit='s')
-        self.data = self.data.groupby('run').resample('%dL' % sampling_rate).mean()
-        self.data['onset'] = self.data.index.get_level_values(1).astype(np.int64) / int(1e9)
-        self.data['run'] = self.data.index.get_level_values(0)
+        self.data = self.data.resample('%dL' % sampling_rate).mean()
+        self.data['onset'] = self.data.index.astype(np.int64) / int(1e9)
         self.data = self.data.reset_index(drop=True)
 
+    ## Maybe need to remove "grouping" columns from here. How to differentiate between grouping
+    ## and "data" columns
     def get_data(self, by_run=True):
-        if by_run is True:
-            return [self.data[self.data.run == i].drop('run', axis=1) for i in self.data.run.unique()]
-
         return self.data
 
-
 class EventReader(object):
+    pass
+
+class FSLEventReader(object):
     """ Reads in FSL-style event files into long format pandas dataframe """
     def __init__(self, columns=None, header='infer', sep=None,
                  default_duration=0., default_amplitude=1.,
@@ -408,4 +402,4 @@ class BIDSEventReader(object):
                 results.append(pd.melt(_data, id_vars=['onset', 'duration'],
                                value_name='amplitude', var_name='condition'))
 
-        return results
+        return pd.concat(results)
