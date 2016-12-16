@@ -209,14 +209,27 @@ class EventTransformer(object):
         return self.data
 
 class EventReader(object):
-    pass
+    def find_patterns(self, data, file):
+        """
+        For each group pattern, tries to find matching pattern in a given file name,
+        and then adds the matching pattern to a given data frame using the given
+        pattern name.
+        """
+        for name, pattern in self.group_patterns:
+            m = re.search(pattern, file)
+            if m is None:
+                raise ValueError(
+                    "Pattern '{}' failed to match any part of "
+                    "filename '{}'.".format(name, file))
+            data[name] = m.group(1)
 
-class FSLEventReader(object):
+        return data
+
+class FSLEventReader(EventReader):
     """ Reads in FSL-style event files into long format pandas dataframe """
     def __init__(self, columns=None, header='infer', sep=None,
                  default_duration=0., default_amplitude=1.,
-                 condition_pattern=None, subject_pattern=None,
-                 run_pattern=None):
+                 group_patterns={'condition' : '(.*)\.[a-zA-Z0-9]{3,4}'}):
         '''
         Args:
             columns (list): Optional list of column output to use. If passed,
@@ -229,6 +242,10 @@ class FSLEventReader(object):
                 events. Will be ignored if a column named 'duration' is found.
             default_amplitude (float): Optional default amplitude to set for
                 all events. Will be ignored if an amplitude column is found.
+            group_patterns (dict): pairs of pattern names and regex with which
+                to capture groups from the input text file fileoutput. 
+                Only the first captured group will be used for each. 
+                Defaults to setting condition to file base name. 
             condition_pattern (str): regex with which to capture condition
                 output from input text file fileoutput. Only the first captured
                 group will be used.
@@ -245,9 +262,7 @@ class FSLEventReader(object):
         self.sep = sep
         self.default_duration = default_duration
         self.default_amplitude = default_amplitude
-        self.condition_pattern = condition_pattern
-        self.subject_pattern = subject_pattern
-        self.run_pattern = run_pattern
+        self.group_patterns = group_patterns
 
     def read(self, path, condition=None, subject=None, run=None, rename=None):
 
@@ -281,40 +296,14 @@ class FSLEventReader(object):
             if 'amplitude' not in cols:
                 _data['amplitude'] = self.default_amplitude
 
+            _data = self.find_patterns(_data, f)
+
             if condition is not None:
                 _data['condition'] = condition
-            elif 'condition' not in cols:
-                cp = self.condition_pattern
-                if cp is None:
-                    cp = '(.*)\.[a-zA-Z0-9]{3,4}'
-                m = re.search(cp, basename(f))
-                if m is None:
-                    raise ValueError(
-                        "No condition column found in event file, no "
-                        "condition_name argument passed, and attempt to "
-                        "automatically extract condition from filename failed."
-                        " Please make sure a condition is specified.")
-                _data['condition'] = m.group(1)
-
             if subject is not None:
                 _data['subject'] = subject
-            elif self.subject_pattern is not None:
-                m = re.search(self.subject_pattern, f)
-                if m is None:
-                    raise ValueError(
-                        "Subject pattern '%s' failed to match any part of "
-                        "filename '%s'." % (self.subject_pattern, f))
-                _data['subject'] = m.group(1)
-
             if run is not None:
                 _data['run'] = run
-            elif self.run_pattern is not None:
-                m = re.search(self.run_pattern, f)
-                if m is None:
-                    raise ValueError(
-                        "Run pattern '%s' failed to match any part of "
-                        "filename '%s'." % (self.run_pattern, f))
-                _data['run'] = m.group(1)
 
             dfs.append(_data)
 
