@@ -246,15 +246,6 @@ class FSLEventReader(EventReader):
                 to capture groups from the input text file fileoutput. 
                 Only the first captured group will be used for each. 
                 Defaults to setting condition to file base name. 
-            condition_pattern (str): regex with which to capture condition
-                output from input text file fileoutput. Only the first captured
-                group will be used.
-            subject_pattern (str): regex with which to capture subject
-                output from input text file fileoutput. Only the first captured
-                group will be used.
-            run_pattern (str): regex with which to capture run output from
-                input text file fileoutput. Only the first captured group
-                will be used.
         '''
 
         self.columns = columns
