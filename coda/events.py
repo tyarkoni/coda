@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 import re
 from glob import glob
-from os.path import basename
 from six import string_types
 from functools import partial
 import json
+from bids.grabbids import BIDSLayout
 
-__all__ = ['BIDSEventReader', 'EventReader', 'EventTransformer']
+__all__ = ['BIDSEventReader', 'FSLEventReader', 'EventTransformer']
 
 
 class Transformations(object):
@@ -203,33 +203,62 @@ class EventTransformer(object):
         self.data['onset'] = self.data.index.astype(np.int64) / int(1e9)
         self.data = self.data.reset_index(drop=True)
 
-    ## Maybe need to remove "grouping" columns from here. How to differentiate between grouping
-    ## and "data" columns
+    """
+    Maybe need to remove "grouping" columns from here.
+    How to differentiate between grouping and "data" columns.
+    """
     def get_data(self, by_run=True):
         return self.data
 
+
 class EventReader(object):
-    def find_patterns(self, data, file):
+    def _add_patterns(self, data, event):
         """
-        For each group pattern, tries to find matching pattern in a given file name,
-        and then adds the matching pattern to a given data frame using the given
-        pattern name.
+        For each group pattern, tries to find matching pattern in a given file
+        name, and then adds the matching pattern to data frame using
+        the given pattern name.
+
+        Next, adds additional event attributes as columns in data, replacing
+        file patterns if there is a conflict.
         """
-        for name, pattern in self.group_patterns:
-            m = re.search(pattern, file)
+
+        for name, pattern in self.group_patterns.iteritems():
+            m = re.search(pattern, event['filename'])
             if m is None:
                 raise ValueError(
                     "Pattern '{}' failed to match any part of "
                     "filename '{}'.".format(name, file))
             data[name] = m.group(1)
 
+        for name, value in event.iteritems():
+            if name not in ['ext', 'filename']:
+                data[name] = value
+
         return data
+
+    def _validate_columns(self, data, f):
+        """ Checks for necessary columns in event files """
+        cols = data.columns
+
+        if 'onset' not in cols:
+            raise ValueError(
+                'Event file "%s" is missing \'onset\' column.' % f)
+        if 'duration' not in cols:
+            if self.default_duration is None:
+                raise ValueError(
+                    'Event file "%s" is missing \'duration\''
+                    ' column, and no default_duration was provided.' % f)
+            else:
+                data['duration'] = self.default_duration
+
+        return data
+
 
 class FSLEventReader(EventReader):
     """ Reads in FSL-style event files into long format pandas dataframe """
     def __init__(self, columns=None, header='infer', sep=None,
                  default_duration=0., default_amplitude=1.,
-                 group_patterns={'condition' : '(.*)\.[a-zA-Z0-9]{3,4}'}):
+                 group_patterns={'condition': '(.*)\.[a-zA-Z0-9]{3,4}'}):
         '''
         Args:
             columns (list): Optional list of column output to use. If passed,
@@ -243,9 +272,9 @@ class FSLEventReader(EventReader):
             default_amplitude (float): Optional default amplitude to set for
                 all events. Will be ignored if an amplitude column is found.
             group_patterns (dict): pairs of pattern names and regex with which
-                to capture groups from the input text file fileoutput. 
-                Only the first captured group will be used for each. 
-                Defaults to setting condition to file base name. 
+                to capture groups from the input text file fileoutput.
+                Only the first captured group will be used for each.
+                Defaults to setting condition to file base name.
         '''
 
         self.columns = columns
@@ -253,12 +282,12 @@ class FSLEventReader(EventReader):
         self.sep = sep
         self.default_duration = default_duration
         self.default_amplitude = default_amplitude
+        if group_patterns is None:
+            group_patterns = {}
         self.group_patterns = group_patterns
 
-    def read(self, path, condition=None, subject=None, run=None, rename=None):
-
+    def read(self, path, rename=None, **kwargs):
         dfs = []
-
         if isinstance(path, string_types):
             path = glob(path)
 
@@ -269,117 +298,93 @@ class FSLEventReader(EventReader):
             if rename is not None:
                 _data = _data.rename(rename)
 
-            # Validate and set CODA columns
-            cols = _data.columns
+            _data = self._validate_columns(_data, f)
+            kwargs.update({'filename': f})
+            _data = self._add_patterns(_data, kwargs)
 
-            if 'onset' not in cols:
-                raise ValueError(
-                    "DataFrame is missing mandatory 'onset' column.")
-
-            if 'duration' not in cols:
-                if self.default_duration is None:
-                    raise ValueError(
-                        'Event file "%s" is missing \'duration\''
-                        ' column, and no default_duration was provided.' % f)
-                else:
-                    _data['duration'] = self.default_duration
-
-            if 'amplitude' not in cols:
+            if 'amplitude' not in _data.columns:
                 _data['amplitude'] = self.default_amplitude
-
-            _data = self.find_patterns(_data, f)
-
-            if condition is not None:
-                _data['condition'] = condition
-            if subject is not None:
-                _data['subject'] = subject
-            if run is not None:
-                _data['run'] = run
 
             dfs.append(_data)
 
         return pd.concat(dfs, axis=0)
 
 
-class BIDSEventReader(object):
+class BIDSEventReader(EventReader):
     """ Reads in BIDS event tsv files into long format pandas dataframe """
     def __init__(self, default_duration=0., default_amplitude=1.,
                  amplitude_column=None, condition_column='trial_type',
-                 sep='\t', base_dir=None):
+                 sep='\t', base_dir=None, group_patterns=None):
         self.default_duration = default_duration
         self.default_amplitude = default_amplitude
         self.condition_column = condition_column
         self.amplitude_column = amplitude_column
         self.sep = sep
         self.base_dir = base_dir
+        if group_patterns is None:
+            group_patterns = {}
+        self.group_patterns = group_patterns
 
-    def read(self, files=None, **kwargs):
+    def read(self, path=None, **kwargs):
         """ Read in events.tsv file, either by specifying file name, or
         by passing in argument with which to query BIDS directory.if
         e.g. subject, run, etc... """
 
         if self.base_dir is None:
-            if files is None:
-                raise ValueError(
-                    "If no BIDS base directory is specified"
-                    " a file to read must be given.")
-            elif isinstance(files, str):
-                files = [files]
+            if isinstance(path, str):
+                path = glob(path)
+            events = [{'filename': f} for f in path]
+
         else:
-            from bids.grabbids import BIDSLayout
-            layout = BIDSLayout(self.base_dir)
-            files = layout.get(type='events', return_type='file', **kwargs)
+            events = BIDSLayout(self.base_dir).get(type='events', **kwargs)
+            events = [dict(e.__dict__) for e in events]
 
-            if len(files) < 1:
-                raise Exception("A BIDS events file could not be found.")
+        if not events:
+            raise Exception("BIDS event file(s) could not be found"
+                            "or were not provided.")
 
-        results = []
-        for file in files:
-            _data = pd.read_table(file, sep=self.sep)
-
-            # Validate and set CODA columns
-            cols = _data.columns
-
-            if 'onset' not in cols:
-                raise ValueError(
-                    "DataFrame is missing mandatory 'onset' column.")
-
-            if 'duration' not in cols:
-                if self.default_duration is None:
-                    raise ValueError(
-                        'Events.tsv file is missing \'duration\''
-                        ' column, and no default_duration was provided.')
-                else:
-                    _data['duration'] = self.default_duration
+        dfs = []
+        for event in events:
+            f = event['filename']
+            _data = pd.read_table(f, sep=self.sep)
+            _data = self._validate_columns(_data, f)
 
             # If condition column is provided, either extract amplitudes
             # from given amplitude column, or to default value
             if self.condition_column is not None:
-                if self.condition_column not in cols:
+                if self.condition_column not in _data.columns:
                     raise ValueError(
-                        "Events.tsv file is missing the specified"
-                        " condition column, {}".format(self.condition_column))
+                        "Event file is missing the specified"
+                        "condition column, {}".format(self.condition_column))
                 else:
                     if self.amplitude_column is not None:
-                        if self.amplitude_column not in cols:
+                        if self.amplitude_column not in _data.columns:
                             raise ValueError(
-                                "Events.tsv file is missing the specified"
-                                " amplitude column, {}".format(self.amplitude_column))
+                                "Event file is missing the specified"
+                                "amplitude column, {}".format(
+                                    self.amplitude_column))
                         else:
                             amplitude = _data[self.amplitude_column]
                     else:
                         amplitude = self.default_amplitude
 
-                    _data['condition'] = _data['trial_type']
                     _data['amplitude'] = amplitude
-                    results.append(_data[['onset', 'duration', 'condition', 'amplitude']])
+                    _data['condition'] = _data['trial_type']
+
             else:
                 # If no condition specified, get amplitudes from all columns,
                 # except 'trial_type'
                 if 'trial_type' in _data.columns:
                     _data.drop('trial_type', axis=1, inplace=True)
 
-                results.append(pd.melt(_data, id_vars=['onset', 'duration'],
-                               value_name='amplitude', var_name='condition'))
+                _data = pd.melt(_data, id_vars=['onset', 'duration'],
+                                value_name='amplitude', var_name='condition')
 
-        return pd.concat(results)
+            # Drop non-coda columns
+            _data = _data.drop(
+                [c for c in _data.columns if c not in
+                 ['onset', 'condition', 'amplitude', 'duration']], axis=1)
+
+            _data = self._add_patterns(_data, event)
+            dfs.append(_data)
+        return pd.concat(dfs)
