@@ -83,8 +83,6 @@ def alias(target, append=False):
 class EventTransformer(object):
 
     def __init__(self, events, orig_hz=1, target_hz=1000):
-        if not isinstance(events, list):
-            events = [events]
         self.events = events
         self.orig_hz = orig_hz
         self.target_hz = target_hz
