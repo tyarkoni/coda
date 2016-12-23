@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import re
 from glob import glob
-from six import string_types
+from six import string_types, iteritems
 from functools import partial
 import json
 from bids.grabbids import BIDSLayout
@@ -220,7 +220,7 @@ class EventReader(object):
         file patterns if there is a conflict.
         """
 
-        for name, pattern in self.group_patterns.iteritems():
+        for name, pattern in iteritems(self.group_patterns):
             m = re.search(pattern, event['filename'])
             if m is None:
                 raise ValueError(
@@ -228,7 +228,7 @@ class EventReader(object):
                     "filename '{}'.".format(name, file))
             data[name] = m.group(1)
 
-        for name, value in event.iteritems():
+        for name, value in iteritems(event):
             if name not in ['ext', 'filename']:
                 data[name] = value
 
