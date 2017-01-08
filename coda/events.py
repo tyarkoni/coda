@@ -6,6 +6,7 @@ from six import string_types, iteritems
 from functools import partial
 import json
 from bids.grabbids import BIDSLayout
+import warnings
 
 __all__ = ['BIDSEventReader', 'FSLEventReader', 'EventTransformer']
 
@@ -358,13 +359,17 @@ class BIDSEventReader(EventReader):
                     if self.amplitude_column is not None:
                         if self.amplitude_column not in _data.columns:
                             raise ValueError(
-                                "Event file is missing the specified"
+                                "Event file is missing the specified "
                                 "amplitude column, {}".format(
                                     self.amplitude_column))
                         else:
                             amplitude = _data[self.amplitude_column]
                     else:
-                        amplitude = self.default_amplitude
+                        if 'amplitude' in _data.columns:
+                            warnings.warn("Setting amplitude to values in column 'ampliude'")
+                            amplitude = _data['amplitude']
+                        else:
+                            amplitude = self.default_amplitude
 
                     _data['amplitude'] = amplitude
                     _data['condition'] = _data['trial_type']
