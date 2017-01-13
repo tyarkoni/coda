@@ -330,7 +330,7 @@ class BIDSEventReader(EventReader):
         e.g. subject, run, etc... """
 
         if self.base_dir is None:
-            if isinstance(path, basestring):
+            if isinstance(path, string_types):
                 path = glob(path)
             events = [{'filename': f} for f in path]
 
