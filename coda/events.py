@@ -7,6 +7,7 @@ from functools import partial
 import json
 from bids.grabbids import BIDSLayout
 import warnings
+import abc
 
 __all__ = ['BIDSEventReader', 'FSLEventReader', 'EventTransformer']
 
@@ -251,6 +252,10 @@ class EventReader(object):
                 data['duration'] = self.default_duration
 
         return data
+
+    @abc.abstractmethod
+    def read(self):
+        """ Abstract read method"""
 
 
 class FSLEventReader(EventReader):
