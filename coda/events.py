@@ -319,7 +319,7 @@ class BIDSEventReader(EventReader):
     def __init__(self, default_duration=0., default_amplitude=1.,
                  amplitude_column=None, condition_column='trial_type',
                  sep='\t', base_dir=None, group_patterns=None,
-                 read_extra_columns=True):
+                 extra_columns=True):
         self.default_duration = default_duration
         self.default_amplitude = default_amplitude
         self.condition_column = condition_column
@@ -329,7 +329,7 @@ class BIDSEventReader(EventReader):
         if group_patterns is None:
             group_patterns = {}
         self.group_patterns = group_patterns
-        self.read_extra_columns = read_extra_columns
+        self.extra_columns = extra_columns
 
     def read(self, path=None, **kwargs):
         """ Read in events.tsv file, either by specifying file name, or
@@ -388,7 +388,7 @@ class BIDSEventReader(EventReader):
 
                 file_dfs.append(_df)
 
-            rec = self.read_extra_columns
+            rec = self.extra_columns
             if rec:
 
                 cols = ['onset', 'duration']
