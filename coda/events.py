@@ -318,7 +318,8 @@ class BIDSEventReader(EventReader):
     """ Reads in BIDS event tsv files into long format pandas dataframe """
     def __init__(self, default_duration=0., default_amplitude=1.,
                  amplitude_column=None, condition_column='trial_type',
-                 sep='\t', base_dir=None, group_patterns=None):
+                 sep='\t', base_dir=None, group_patterns=None,
+                 extra_columns=True):
         self.default_duration = default_duration
         self.default_amplitude = default_amplitude
         self.condition_column = condition_column
@@ -328,6 +329,7 @@ class BIDSEventReader(EventReader):
         if group_patterns is None:
             group_patterns = {}
         self.group_patterns = group_patterns
+        self.extra_columns = extra_columns
 
     def read(self, path=None, **kwargs):
         """ Read in events.tsv file, either by specifying file name, or
@@ -353,45 +355,59 @@ class BIDSEventReader(EventReader):
             _data = pd.read_table(f, sep=self.sep)
             _data = self._validate_columns(_data, f)
 
+            file_dfs = []
+
             # If condition column is provided, either extract amplitudes
             # from given amplitude column, or to default value
             if self.condition_column is not None:
+
                 if self.condition_column not in _data.columns:
                     raise ValueError(
                         "Event file is missing the specified"
                         "condition column, {}".format(self.condition_column))
-                else:
-                    if self.amplitude_column is not None:
-                        if self.amplitude_column not in _data.columns:
-                            raise ValueError(
-                                "Event file is missing the specified "
-                                "amplitude column, {}".format(
-                                    self.amplitude_column))
-                        else:
-                            amplitude = _data[self.amplitude_column]
+
+                if self.amplitude_column is not None:
+                    if self.amplitude_column not in _data.columns:
+                        raise ValueError(
+                            "Event file is missing the specified "
+                            "amplitude column, {}".format(
+                                self.amplitude_column))
                     else:
-                        if 'amplitude' in _data.columns:
-                            warnings.warn("Setting amplitude to values in column 'ampliude'")
-                            amplitude = _data['amplitude']
-                        else:
-                            amplitude = self.default_amplitude
+                        amplitude = _data[self.amplitude_column]
+                else:
+                    if 'amplitude' in _data.columns:
+                        warnings.warn("Setting amplitude to values in "
+                                      "column 'ampliude'")
+                        amplitude = _data['amplitude']
+                    else:
+                        amplitude = self.default_amplitude
 
-                    _data['amplitude'] = amplitude
-                    _data['condition'] = _data['trial_type']
+                    _df = _data[['onset', 'duration']].copy()
+                    _df['amplitude'] = amplitude
+                    _df['condition'] = _data[self.condition_column]
 
-            else:
-                # If no condition specified, get amplitudes from all columns,
-                # except 'trial_type'
-                if 'trial_type' in _data.columns:
-                    _data.drop('trial_type', axis=1, inplace=True)
+                file_dfs.append(_df)
 
-                _data = pd.melt(_data, id_vars=['onset', 'duration'],
-                                value_name='amplitude', var_name='condition')
+            rec = self.extra_columns
+            if rec:
 
-            # Drop non-coda columns
-            _data = _data.drop(
-                [c for c in _data.columns if c not in
-                 ['onset', 'condition', 'amplitude', 'duration']], axis=1)
+                cols = ['onset', 'duration']
+                if isinstance(rec, (list, tuple)):
+                    cols += rec
+                else:
+                    omit = cols + ['trial_type']
+                    cols += list(set(_data.columns.tolist()) - set(omit))
+
+                # # If no condition specified, get amplitudes from all columns,
+                # # except 'trial_type'
+                # if 'trial_type' in _data.columns:
+                #     _data.drop('trial_type', axis=1, inplace=True)
+
+                _df = pd.melt(_data.loc[:, cols], id_vars=['onset', 'duration'],
+                              value_name='amplitude', var_name='condition')
+                file_dfs.append(_df)
+
+            _data = pd.concat(file_dfs, axis=0)
 
             _data = self._add_patterns(_data, event)
             dfs.append(_data)
