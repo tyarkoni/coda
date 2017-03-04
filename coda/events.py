@@ -388,13 +388,22 @@ class BIDSEventReader(EventReader):
 
                 file_dfs.append(_df)
 
-            if self.read_extra_columns:
-                # If no condition specified, get amplitudes from all columns,
-                # except 'trial_type'
-                if 'trial_type' in _data.columns:
-                    _data.drop('trial_type', axis=1, inplace=True)
+            rec = self.read_extra_columns
+            if rec:
 
-                _df = pd.melt(_data, id_vars=['onset', 'duration'],
+                cols = ['onset', 'duration']
+                if isinstance(rec, (list, tuple)):
+                    cols += rec
+                else:
+                    omit = cols + ['trial_type']
+                    cols += list(set(_data.columns.tolist()) - set(omit))
+
+                # # If no condition specified, get amplitudes from all columns,
+                # # except 'trial_type'
+                # if 'trial_type' in _data.columns:
+                #     _data.drop('trial_type', axis=1, inplace=True)
+
+                _df = pd.melt(_data.loc[:, cols], id_vars=['onset', 'duration'],
                               value_name='amplitude', var_name='condition')
                 file_dfs.append(_df)
 
